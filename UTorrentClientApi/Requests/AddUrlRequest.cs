@@ -57,9 +57,11 @@ namespace UTorrent.Api
                 throw new InvalidOperationException("FileUrl is missing with AddUrl action");
         }
 
+#if !PORTABLE
         protected override void OnProcessingRequest(System.Net.HttpWebRequest wr)
         {
         }
+#endif
 
         protected override void OnProcessedRequest(AddUrlResponse result)
         {

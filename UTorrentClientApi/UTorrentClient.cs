@@ -7,6 +7,7 @@ using System.Diagnostics.Contracts;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using UTorrent.Api.Data;
@@ -223,7 +224,7 @@ namespace UTorrent.Api
             return Task.Factory.StartNew(() => GetFiles(hash));
         }
 
-#region Command
+        #region Command
 
         /// <summary>
         /// Start the torrent
@@ -561,9 +562,9 @@ namespace UTorrent.Api
         }
 
 
-#endregion
+        #endregion
 
-#region New Torrent
+        #region New Torrent
 
         /// <summary>
         /// Send torrent url to the µTorrent client
@@ -691,9 +692,9 @@ namespace UTorrent.Api
             return result;
         }
 
-#endregion
+        #endregion
 
-#region Settings
+        #region Settings
 
         public Response GetSettings()
         {
@@ -742,10 +743,13 @@ namespace UTorrent.Api
             return ProcessRequest(request);
         }
 
-#endregion
+        #endregion
 
         private void GetToken()
         {
+
+#if !PORTABLE
+
             var wr = (HttpWebRequest)WebRequest.Create(TokenUrl);
             wr.Method = "GET";
             wr.Credentials = new NetworkCredential(_logOn, _password);
@@ -754,11 +758,7 @@ namespace UTorrent.Api
 
             try
             {
-#if !PORTABLE
                 using (var response = wr.GetResponse())
-#else
-                using (var response = wr.GetResponseAsync().Result)
-#endif
                 {
                     using (var stream = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
                     {
@@ -809,6 +809,56 @@ namespace UTorrent.Api
 
                 throw new ServerUnavailableException("Unable to retreive WebUI token", ex);
             }
+
+#else
+            using (HttpClientHandler hch = new HttpClientHandler())
+            {
+                hch.Credentials = new NetworkCredential(_logOn, _password);
+                using (HttpClient hc = new HttpClient(hch))
+                {
+                    var response = hc.GetAsync(TokenUrl).Result;
+                    string result = response.Content.ReadAsStringAsync().Result;
+
+                    if (result == null)
+                    {
+                        throw new ServerUnavailableException("Unable to retreive WebUI token");
+                    }
+
+                    var cookies = response.Headers != null ? response.Headers.GetValues("Set-Cookie") : null;
+                    if (cookies != null)
+                    {
+                        foreach (string cookie in cookies)
+                        {
+                            if (cookie.Contains("GUID"))
+                            {
+                                var tab1 = cookie.Split(';');
+                                if (tab1.Length >= 1)
+                                {
+                                    var cookiestab = tab1[0].Split('=');
+                                    if (cookiestab.Length >= 2)
+                                    {
+                                        _cookie = new Cookie(cookiestab[0], cookiestab[1]) { Domain = BaseUrl };
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    int indexStart = result.IndexOf('<');
+                    int indexEnd = result.IndexOf('>');
+                    while (indexStart >= 0 && indexEnd >= 0 && indexStart <= indexEnd)
+                    {
+                        result = result.Remove(indexStart, indexEnd - indexStart + 1);
+
+                        indexStart = result.IndexOf('<');
+                        indexEnd = result.IndexOf('>');
+                    }
+                    _token = result;
+                }
+
+            }
+#endif
+
         }
 
         /// <summary>

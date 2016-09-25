@@ -23,7 +23,7 @@
   },
 
   "frameworks": {
-    "netstandard1.3": {
+    "netstandard1.6": {
       "buildOptions": {
         "define": [
           "PORTABLE"
@@ -46,12 +46,7 @@
       "frameworkAssemblies": {
         "System.Configuration": ""
       }
-    },
-    "NET40": {
-      "frameworkAssemblies": {
-        "System.Configuration": "",
-        "System.Web": ""
-      }
     }
+
   }
 }

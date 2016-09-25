@@ -76,6 +76,7 @@ namespace UTorrent.Api
                 throw new InvalidOperationException("FileStream is missing with AddFile action");
         }
 
+#if !PORTABLE
         protected override void OnProcessingRequest(System.Net.HttpWebRequest wr)
         {
             if (wr == null)
@@ -147,6 +148,58 @@ namespace UTorrent.Api
                 }
             }
         }
+#else
+        protected override System.Net.Http.HttpContent OnProcessingRequest()
+        {
+            if (InputStream != null)
+            {
+                string boundary = "---------------------------" + DateTime.Now.Ticks.ToString("x", System.Globalization.CultureInfo.InvariantCulture);
+                byte[] boundarybytes = Encoding.ASCII.GetBytes("\r\n--" + boundary + "\r\n");
+
+                System.Net.Http.MultipartFormDataContent multiPartContent = new System.Net.Http.MultipartFormDataContent(boundary);
+                //                hc.Method = "POST";
+
+                var ms = new Tools.ChunkedMemoryStream();
+                {
+                    ms.Write(boundarybytes, 0, boundarybytes.Length);
+                    const string headerTemplate = "Content-Disposition: form-data; name=\"{0}\"; filename=\"{1}\"\r\nContent-Type: {2}\r\n";
+                    string header = string.Format(System.Globalization.CultureInfo.InvariantCulture, headerTemplate, "torrent_file", "file.torrent", "application/octet-stream");
+                    byte[] headerbytes = Encoding.UTF8.GetBytes(header);
+                    ms.Write(headerbytes, 0, headerbytes.Length);
+
+                    byte[] contenttypebytes = Encoding.ASCII.GetBytes("Content-Type: application/x-bittorrent\r\n\r\n");
+                    ms.Write(contenttypebytes, 0, contenttypebytes.Length);
+
+                    byte[] buffer = new byte[4096];
+                    int bytesRead;
+                    while ((bytesRead = InputStream.Read(buffer, 0, buffer.Length)) != 0)
+                    {
+                        ms.Write(buffer, 0, bytesRead);
+                    }
+                    //request.InputStream.Close();
+
+                    byte[] trailer = Encoding.ASCII.GetBytes("\r\n--" + boundary + "--\r\n");
+                    ms.Write(trailer, 0, trailer.Length);
+
+                    multiPartContent.Headers.ContentLength = ms.Length;
+
+                    // Debug
+                    //ms.Position = 0;
+                    //var srMs = new System.IO.StreamReader(ms);
+                    //string post = srMs.ReadToEnd();
+
+                    System.Net.Http.HttpContent singleContent = new System.Net.Http.StreamContent(ms);
+
+                    multiPartContent.Add(singleContent);
+
+                    return multiPartContent;
+                }
+            }
+
+            return null;
+        }
+#endif
+
 
         protected override void OnProcessedRequest(AddStreamResponse result)
         {

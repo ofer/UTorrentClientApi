@@ -7,6 +7,8 @@ using System.Text;
 namespace UTorrent.Api
 {
     using System.Globalization;
+    using System.Net;
+    using System.Net.Http;
 
     public abstract class BaseRequest<T> where T : BaseResponse, new()
     {
@@ -234,12 +236,19 @@ namespace UTorrent.Api
             return new Uri(sb.ToString());
         }
 
+#if !PORTABLE
         protected abstract void OnProcessingRequest(System.Net.HttpWebRequest wr);
+#else
+        protected virtual HttpContent OnProcessingRequest() { return null; }
+#endif
+
         protected abstract void OnProcessedRequest(T result);
 
         public T ProcessRequest(string token, string logOn, string password, System.Net.Cookie cookie)
         {
             Uri uri = ToUrl(token);
+
+#if !PORTABLE
             System.Net.HttpWebRequest wr = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(uri);
             wr.Credentials = new System.Net.NetworkCredential(logOn, password);
             wr.CookieContainer = new System.Net.CookieContainer();
@@ -251,12 +260,8 @@ namespace UTorrent.Api
 
             OnProcessingRequest(wr);
 
-#if !PORTABLE
             using (var response = wr.GetResponse())
             using (var stream = response.GetResponseStream())
-#else
-            using(var stream = wr.GetRequestStreamAsync().Result)
-#endif
             {
                 if (stream == null)
                     throw new InvalidOperationException("Response stream is null");
@@ -273,7 +278,50 @@ namespace UTorrent.Api
                 OnProcessedRequest(ret);
                 return ret;
             }
+#else
+            using (HttpClientHandler hch = new HttpClientHandler())
+            {
+                hch.Credentials = new System.Net.NetworkCredential(logOn, password);
+                hch.CookieContainer = new CookieContainer();
+                if (cookie != null)
+                {
+                    var cookiUri = cookie.Domain != null ? new Uri(cookie.Domain) : BaseUrl;
+                    hch.CookieContainer.SetCookies(uri, cookie.ToString());
+                }
+                using (HttpClient hc = new HttpClient(hch))
+                {
+
+                    HttpContent content = OnProcessingRequest();
+                    using (var stream = ExecuteRequest(hc, uri, content))
+                    {
+                        if (stream == null)
+                            throw new InvalidOperationException("Response stream is null");
+
+                        var sr = new System.IO.StreamReader(stream);
+                        var jsonResult = sr.ReadToEnd();
+
+                        var result = JsonParser.ParseJsonResult(jsonResult);
+
+                        if (result != null && result.CacheId != 0)
+                            _cacheId = result.CacheId;
+
+                        var ret = new T { Result = result };
+                        OnProcessedRequest(ret);
+                        return ret;
+                    }
+                }
+            }
+#endif
         }
 
+#if PORTABLE
+        private System.IO.Stream ExecuteRequest(HttpClient hc, Uri uri, HttpContent content)
+        {
+            if (content == null)
+                return hc.GetStreamAsync(uri).Result;
+            else
+                return hc.PostAsync(uri, content).Result.Content.ReadAsStreamAsync().Result;
+        }
+#endif
     }
 }

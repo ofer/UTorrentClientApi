@@ -42,9 +42,11 @@ namespace UTorrent.Api
         {
         }
 
+#if !PORTABLE
         protected override void OnProcessingRequest(System.Net.HttpWebRequest wr)
         {
         }
+#endif
 
         protected override void OnProcessedRequest(Response result)
         {
